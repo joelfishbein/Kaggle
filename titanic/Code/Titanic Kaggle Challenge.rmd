@@ -1,0 +1,367 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+library(tidyverse)
+library(lme4)
+library(psych)
+library(skimr)
+library(tidymodels)
+
+
+test <- read_csv('~/Kaggle/titanic/CSVs/test.csv')
+
+train <- read_csv('~/Kaggle/titanic/CSVs/train.csv')
+
+gender_submission <- read_csv('~/Kaggle/titanic/CSVs/gender_submission.csv')
+
+```
+
+```{r}
+psych::describe(gender_submission)
+
+skimr::skim(gender_submission)
+```
+
+# Data cleaning
+
+Variable Definition Key
+
+survival: Survival 0 = No, 1 = Yes
+
+pclass Ticket class 1 = 1st, 2 = 2nd, 3 = 3rd
+
+sex: Sex\
+Age: Age in years\
+sibsp \# of siblings / spouses aboard the Titanic\
+parch \# of parents / children aboard the Titanic\
+ticket Ticket number\
+fare Passenger fare\
+cabin Cabin number\
+embarked Port of Embarkation C = Cherbourg, Q = Queenstown, S = Southampton
+
+```{r}
+
+train <-
+  train %>%
+  mutate(`Passenger Survived` = factor(Survived, levels = c(0,1), labels = c('No','Yes')),
+         `Ticket Class` = factor(Pclass, levels = c(1:3), labels = c('1st','2nd','3rd')),
+         `Sex` = as_factor(Sex),
+         AgeUnder15 = (Age < 15),
+         AgeUnder10 = (Age < 10),
+         AgeOver60 = (Age > 60),
+         HadParentsOrKidsOnboard = (Parch > 0),
+         ParentsOrKidsOnboard = ifelse(Parch == 0, 
+                                     'No', 
+                                     ifelse(Parch == 1, 
+                                            'One', 
+                                            'Two or More')),
+         HadSibOrSpouseAboard = (SibSp > 0),
+         SibsOrSpouseAboard = ifelse(SibSp == 0, 
+                                     'No', 
+                                     ifelse(SibSp == 1, 
+                                            'One', 
+                                            'Two or More')),
+         logFare = log(Fare))
+         
+
+test <-
+  test %>%
+mutate(`Ticket Class` = factor(Pclass, levels = c(1:3), labels = c('1st','2nd','3rd')),
+         `Sex` = as_factor(Sex),
+         AgeUnder15 = (Age < 15),
+         AgeUnder10 = (Age < 10),
+         AgeOver60 = (Age > 60),
+         HadParentsOrKidsOnboard = (Parch > 0),
+         ParentsOrKidsOnboard = ifelse(Parch == 0, 
+                                     'No', 
+                                     ifelse(Parch == 1, 
+                                            'One', 
+                                            'Two or More')),
+         HadSibOrSpouseAboard = (SibSp > 0),
+         SibsOrSpouseAboard = ifelse(SibSp == 0, 
+                                     'No', 
+                                     ifelse(SibSp == 1, 
+                                            'One', 
+                                            'Two or More')),
+         logFare = log(Fare))
+         
+                                 
+
+```
+
+```{r}
+
+glimpse(train)
+
+```
+
+# Exploratory data analysis
+
+## How many survivors?
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`))+
+  geom_bar(position = position_dodge2())
+
+
+```
+
+## Ticket Class
+
+Seems like people in higher classes ought to be more likely to survive...
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = `Ticket Class`)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+## Sex
+
+As I recall, women were prioritized for boats...
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = `Sex`)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+## Age
+
+Putting in something to capture being a little kid might be helpful...
+
+### Hist
+
+```{r}
+train %>%
+  ggplot(mapping = aes(x = Age)) +
+  geom_histogram()
+
+```
+
+### Relationship to survival
+
+Kids were also prioritized for boats...
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, y = Age)) +
+  geom_boxplot()
+
+
+```
+
+Doesn't actually seem like the ages of dead vs alive mattered...
+
+Might be better as, like, under 15 vs over or something like that
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = `AgeUnder15`)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+Or maybe, like, age 10?
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = `AgeUnder10`)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+What about old people eg over 60?
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = `AgeOver60`)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+## Sibsp
+
+What about if you had someone onboard who was your peer potentially looking out for you?
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = SibSp)) +
+  geom_histogram()
+
+
+```
+
+Most people had no sibs/spouses aboard
+
+200 had 1 (probably a spouse for many?)
+
+Some had 2+
+
+Could try looking at it that way...
+
+Seems like bad news if you had lots of other peers aboard for some reason...maybe the 2+ people were people who worked on on the ship?
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = SibsOrSpouseAboard)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+## Parch
+
+```{r}
+
+train %>%
+  ggplot(aes(x = Parch)) +
+  geom_histogram()
+```
+
+If you had kids onboard, maybe you were more likely to survive?
+
+Or likewise if you had parents, that made you a kid, so maybe you were more likely to survive?
+
+Seems like you could just treat this as a true/false variable, true if had parents or kids, false if not.
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, fill = ParentsOrKidsOnboard)) +
+  geom_bar(position = position_dodge2())
+
+
+```
+
+## Fare
+
+If you paid more maybe you were more affluent and so less likely to die
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x  = Fare)) +
+  geom_histogram()
+
+train %>%
+  ggplot(mapping = aes(x = logFare)) +
+  geom_histogram(binwidth = .5)
+```
+
+```{r}
+
+train %>%
+  ggplot(mapping = aes(x = `Passenger Survived`, y = log(Fare))) +
+  geom_boxplot()
+
+
+```
+
+## Relationships Among Variables
+
+### Is class redundant with fare?
+
+```{r}
+psych::polychoric(train$logFare, train$`Ticket Class`)
+
+```
+
+# Models
+
+## Logistic Regression - Predict survival by ticket class and sex
+
+### Make recipe
+
+```{r}
+
+titanic_recipe <- 
+  #recipe(`Passenger Survived` ~ `Ticket Class` + Sex,
+  recipe(`Passenger Survived` ~ `Ticket Class` + Sex +  SibsOrSpouseAboard + ParentsOrKidsOnboard,
+  
+         data = train)
+```
+
+### Logistic regression model
+
+```{r}
+lr_mod <- 
+  logistic_reg() %>% 
+  set_engine("glm")
+
+```
+
+### Workflow
+
+```{r}
+titanic_wflow <- 
+  workflow() %>% 
+  add_model(lr_mod) %>% 
+  add_recipe(titanic_recipe)
+```
+
+### Fit the model
+
+```{r}
+titanic_logistic_fit <-
+  titanic_wflow %>%
+  fit(data = train)
+
+
+```
+
+```{r}
+titanic_logistic_fit %>%
+  pull_workflow_fit() %>%
+  tidy()
+
+```
+
+### Check accuracy on training data
+
+```{r}
+train_prediction_check <- 
+  predict(titanic_logistic_fit, train) %>%
+  bind_cols(train) %>%
+  mutate(`Model Prediction is Correct` = (.pred_class == `Passenger Survived`))
+
+table(train_prediction_check$`Model Prediction is Correct` )
+
+```
+
+m
+
+### Make predictions on the test data
+
+```{r}
+test_predict <- 
+  predict(titanic_logistic_fit, test) %>%
+  bind_cols(test %>% select(PassengerId)) %>%
+  mutate(Survived = ifelse(.pred_class == 'No',0,1)) %>%
+  select(-.pred_class)
+
+write_csv(x = test_predict, file = "~/Kaggle/titanic/test_predictions.csv")
+```
+
+# Tree-based approach
