@@ -10,6 +10,7 @@ library(lme4)
 library(psych)
 library(skimr)
 library(tidymodels)
+library(xgboost)
 
 
 test <- read_csv('~/Kaggle/titanic/CSVs/test.csv')
@@ -365,3 +366,95 @@ write_csv(x = test_predict, file = "~/Kaggle/titanic/test_predictions.csv")
 ```
 
 # Tree-based approach
+
+## Setup cores
+```{r}
+# speed up computation with parrallel processing (optional)
+library(doParallel)
+all_cores <- parallel::detectCores(logical = FALSE)
+registerDoParallel(cores = all_cores)
+
+
+```
+
+## Create model
+```{r}
+xgboost_recipe <- 
+  recipe(Survived ~ Pclass + Sex +  SibSp + Parch,
+  
+         data = train) %>%
+  
+  step_cut(Pclass, breaks = c(1:3)) %>%
+  step_string2factor(Sex) %>%
+  step_center(all_numeric_predictors())  %>%
+  step_scale(all_numeric_predictors()) %>%
+  prep()
+  
+
+```
+
+
+```{r}
+xgboost_model <- 
+  parsnip::boost_tree(
+    mode = "classification",
+    trees = 10,
+    min_n = tune(),
+    tree_depth = tune(),
+    learn_rate = tune(),
+    loss_reduction = tune()
+  ) %>%
+    set_engine("xgboost")
+
+```
+
+
+```{r}
+# grid specification
+xgboost_params <- 
+  dials::parameters(
+    min_n(),
+    tree_depth(),
+    learn_rate(),
+    loss_reduction()
+  )
+
+
+```
+
+
+```{r}
+
+xgboost_wf <- 
+  workflows::workflow() %>%
+  add_model(xgboost_model) %>% 
+  add_formula(Survived ~ Pclass + Sex +  SibSp + Parch)
+
+xgboost_grid <- 
+  dials::grid_max_entropy(
+    xgboost_params, 
+    size = 60
+  )
+knitr::kable(head(xgboost_grid))
+
+```
+
+
+```{r}
+
+train_folds <- 
+  recipes::bake(
+    xgboost_recipe, 
+    new_data = train
+  ) %>%  
+  rsample::vfold_cv(v = 5)
+
+xgboost_tuned <- tune::tune_grid(
+  object = xgboost_wf, resamples = train_folds,
+  grid = xgboost_grid,
+  metrics = yardstick::metric_set(accuracy),
+  control = tune::control_grid(verbose = TRUE)
+)
+
+View(xgboost_tuned)
+```
