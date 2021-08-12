@@ -20,6 +20,12 @@ train <- read_csv('~/Kaggle/titanic/CSVs/train.csv')
 gender_submission <- read_csv('~/Kaggle/titanic/CSVs/gender_submission.csv')
 
 ```
+## Create training folds
+```{r}
+set.seed(2001)
+training_data.folds <- vfold_cv(train, v = 10)
+
+```
 
 ```{r}
 psych::describe(gender_submission)
@@ -299,9 +305,10 @@ psych::polychoric(train$logFare, train$`Ticket Class`)
 
 titanic_recipe <- 
   #recipe(`Passenger Survived` ~ `Ticket Class` + Sex,
-  recipe(`Passenger Survived` ~ `Ticket Class` + Sex +  SibsOrSpouseAboard + ParentsOrKidsOnboard,
-  
-         data = train)
+  recipe(Survived ~ Pclass + Sex + SibSp + Parch, data = train) %>%
+  step_mutate_at(all_numeric(), fn = as.factor)
+
+
 ```
 
 ### Logistic regression model
@@ -320,6 +327,8 @@ titanic_wflow <-
   workflow() %>% 
   add_model(lr_mod) %>% 
   add_recipe(titanic_recipe)
+
+titanic_wflow
 ```
 
 ### Fit the model
@@ -367,7 +376,7 @@ write_csv(x = test_predict, file = "~/Kaggle/titanic/test_predictions.csv")
 
 # Decision Tree
 
-## Model
+### Model
 
 ```{r}
 
@@ -376,7 +385,7 @@ decision_tree.model <-
 
 ```
 
-## Workflow
+### Workflow
 ```{r}
 titanic_wflow <- 
   workflow() %>% 
@@ -384,7 +393,7 @@ titanic_wflow <-
   add_recipe(titanic_recipe)
 ```
 
-## Fit
+### Fit
 ```{r}
 
 titanic_decision_tree.fit <-
@@ -394,7 +403,62 @@ titanic_decision_tree.fit <-
 titanic_decision_tree.fit
 ```
 
-## Test performance on training data
+### Test performance on training data
+
+```{r}
+
+
+train_prediction_check <- 
+  predict(titanic_decision_tree.fit, train) %>%
+  bind_cols(train) %>%
+  mutate(`Model Prediction is Correct` = (.pred_class == Survived))
+
+table(train_prediction_check$`Model Prediction is Correct` )
+
+```
+
+### Make predictions on test data
+```{r}
+test_predict <- 
+  predict(titanic_decision_tree.fit, test) %>%
+  bind_cols(test %>% select(PassengerId)) %>%
+  mutate(Survived = ifelse(.pred_class == 'No',0,1)) %>%
+  select(-.pred_class)
+
+write_csv(x = test_predict, file = "~/Kaggle/titanic/test_predictions_decision_tree.csv")
+```
+# Bagging tree
+
+### Model
+
+```{r}
+library(baguette)
+bag_tree.model <-
+  bag_tree() %>%
+  set_engine("rpart", times = 25) %>%
+  set_mode("classification")
+
+```
+
+### Workflow
+```{r}
+titanic_wflow <- 
+  workflow() %>% 
+  add_model(bag_tree.model) %>% 
+  add_recipe(titanic_recipe)
+```
+
+### Fit
+```{r}
+
+titanic_bag.fit <-
+  titanic_wflow %>%
+  fit(data = train)
+
+titanic_decision_tree.fit
+```
+
+### Test performance on training data
 
 ```{r}
 
@@ -408,7 +472,7 @@ table(train_prediction_check$`Model Prediction is Correct` )
 
 ```
 
-## Make predictions on test data
+### Make predictions on test data
 ```{r}
 test_predict <- 
   predict(titanic_decision_tree.fit, test) %>%
