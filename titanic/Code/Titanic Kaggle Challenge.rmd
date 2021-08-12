@@ -365,7 +365,61 @@ test_predict <-
 write_csv(x = test_predict, file = "~/Kaggle/titanic/test_predictions.csv")
 ```
 
-# Tree-based approach
+# Decision Tree
+
+## Model
+
+```{r}
+
+decision_tree.model <-
+  decision_tree(mode = "classification", tree_depth = 10)
+
+```
+
+## Workflow
+```{r}
+titanic_wflow <- 
+  workflow() %>% 
+  add_model(decision_tree.model) %>% 
+  add_recipe(titanic_recipe)
+```
+
+## Fit
+```{r}
+
+titanic_decision_tree.fit <-
+  titanic_wflow %>%
+  fit(data = train)
+
+titanic_decision_tree.fit
+```
+
+## Test performance on training data
+
+```{r}
+
+
+train_prediction_check <- 
+  predict(titanic_decision_tree.fit, train) %>%
+  bind_cols(train) %>%
+  mutate(`Model Prediction is Correct` = (.pred_class == `Passenger Survived`))
+
+table(train_prediction_check$`Model Prediction is Correct` )
+
+```
+
+## Make predictions on test data
+```{r}
+test_predict <- 
+  predict(titanic_decision_tree.fit, test) %>%
+  bind_cols(test %>% select(PassengerId)) %>%
+  mutate(Survived = ifelse(.pred_class == 'No',0,1)) %>%
+  select(-.pred_class)
+
+write_csv(x = test_predict, file = "~/Kaggle/titanic/test_predictions_decision_tree.csv")
+```
+
+# xgboost
 
 ## Setup cores
 ```{r}
